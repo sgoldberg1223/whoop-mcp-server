@@ -1,6 +1,6 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { CallToolRequestSchema, ListToolsRequestSchema, ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import express, { type Request, type Response } from 'express';
 import { WhoopClient } from './whoop-client.js';
@@ -36,20 +36,7 @@ if (existingTokens) {
 
 const sync = new WhoopSync(client, db);
 
-const SESSION_TTL_MS = 30 * 60 * 1000;
-const transports = new Map<string, { transport: StreamableHTTPServerTransport; lastAccess: number }>();
-
-function cleanupStaleSessions(): void {
-	const now = Date.now();
-	for (const [sessionId, session] of transports) {
-		if (now - session.lastAccess > SESSION_TTL_MS) {
-			session.transport.close().catch(() => {});
-			transports.delete(sessionId);
-		}
-	}
-}
-
-setInterval(cleanupStaleSessions, 5 * 60 * 1000);
+const sseTransports = new Map<string, SSEServerTransport>();
 
 function formatDuration(millis: number | null): string {
 	if (!millis) return 'N/A';
@@ -349,63 +336,40 @@ async function main(): Promise<void> {
 				res.status(400).send('Missing authorization code');
 				return;
 			}
-
 			try {
-  process.stderr.write(`DEBUG: clientId=${config.clientId}, secretLength=${config.clientSecret.length}, redirectUri=${config.redirectUri}\n`);
-  const tokens = await client.exchangeCodeForTokens(code);
+				const tokens = await client.exchangeCodeForTokens(code);
 				db.saveTokens(tokens);
 				sync.syncDays(90).catch(() => {});
 				res.send('Authorization successful! You can close this window.');
 			} catch (err) {
-  const message = err instanceof Error ? err.message : String(err);
-  process.stderr.write(`Auth error: ${message}\n`);
-  res.status(500).send(`Authorization failed: ${message}`);
-}
+				const message = err instanceof Error ? err.message : String(err);
+				process.stderr.write(`Auth error: ${message}\n`);
+				res.status(500).send(`Authorization failed: ${message}`);
+			}
 		});
 
 		app.get('/health', (_req: Request, res: Response) => {
 			res.json({ status: 'ok', authenticated: Boolean(db.getTokens()) });
 		});
 
-		app.all('/mcp', async (req: Request, res: Response) => {
-			const sessionId = req.headers['mcp-session-id'] as string | undefined;
-
-			if (req.method === 'DELETE' && sessionId && transports.has(sessionId)) {
-				const session = transports.get(sessionId)!;
-				await session.transport.close();
-				transports.delete(sessionId);
-				res.status(200).send('Session closed');
-				return;
-			}
-
-			if (req.method === 'POST') {
-				let transport: StreamableHTTPServerTransport;
-
-				if (sessionId && transports.has(sessionId)) {
-					const session = transports.get(sessionId)!;
-					session.lastAccess = Date.now();
-					transport = session.transport;
-				} else {
-					transport = new StreamableHTTPServerTransport({
-						sessionIdGenerator: () => crypto.randomUUID(),
-						onsessioninitialized: newSessionId => {
-							transports.set(newSessionId, { transport, lastAccess: Date.now() });
-						},
-					});
-
-					const server = createMcpServer();
-					await server.connect(transport);
-				}
-
-				await transport.handleRequest(req, res);
-				return;
-			}
-
-			res.status(405).send('Method not allowed');
+		app.get('/sse', async (req: Request, res: Response) => {
+			const transport = new SSEServerTransport('/messages', res);
+			sseTransports.set(transport.sessionId, transport);
+			res.on('close', () => {
+				sseTransports.delete(transport.sessionId);
+			});
+			const server = createMcpServer();
+			await server.connect(transport);
 		});
 
-		app.get('/sse', (_req: Request, res: Response) => {
-			res.status(410).send('SSE endpoint deprecated. Use /mcp with Streamable HTTP transport.');
+		app.post('/messages', async (req: Request, res: Response) => {
+			const sessionId = req.query.sessionId as string;
+			const transport = sseTransports.get(sessionId);
+			if (!transport) {
+				res.status(404).send('Session not found');
+				return;
+			}
+			await transport.handlePostMessage(req, res);
 		});
 
 		const server = app.listen(config.port, '0.0.0.0', () => {
@@ -414,10 +378,6 @@ async function main(): Promise<void> {
 
 		const shutdown = (): void => {
 			process.stdout.write('\nShutting down...\n');
-			for (const [, session] of transports) {
-				session.transport.close().catch(() => {});
-			}
-			transports.clear();
 			db.close();
 			server.close(() => process.exit(0));
 		};
