@@ -56,20 +56,19 @@ export class WhoopClient {
 	}
 
 	async exchangeCodeForTokens(code: string): Promise<WhoopTokens> {
-  const credentials = Buffer.from(`${this.clientId}:${this.clientSecret}`).toString('base64');
+  const params = new URLSearchParams();
+  params.append('grant_type', 'authorization_code');
+  params.append('code', code);
+  params.append('client_id', this.clientId);
+  params.append('client_secret', this.clientSecret);
+  params.append('redirect_uri', this.redirectUri);
+
   const response = await fetch(`${WHOOP_AUTH_BASE}/token`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
-      'Authorization': `Basic ${credentials}`,
     },
-    body: new URLSearchParams({
-      grant_type: 'authorization_code',
-      code,
-      client_id: this.clientId,
-      client_secret: this.clientSecret,
-      redirect_uri: this.redirectUri,
-    }),
+    body: params,
   });
 
   if (!response.ok) {
