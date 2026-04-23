@@ -355,9 +355,11 @@ async function main(): Promise<void> {
 				db.saveTokens(tokens);
 				sync.syncDays(90).catch(() => {});
 				res.send('Authorization successful! You can close this window.');
-			} catch {
-				res.status(500).send('Authorization failed. Please try again.');
-			}
+			} catch (err) {
+  const message = err instanceof Error ? err.message : String(err);
+  process.stderr.write(`Auth error: ${message}\n`);
+  res.status(500).send(`Authorization failed: ${message}`);
+}
 		});
 
 		app.get('/health', (_req: Request, res: Response) => {
