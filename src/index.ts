@@ -351,7 +351,8 @@ async function main(): Promise<void> {
 			}
 
 			try {
-				const tokens = await client.exchangeCodeForTokens(code);
+  process.stderr.write(`DEBUG: clientId=${config.clientId}, secretLength=${config.clientSecret.length}, redirectUri=${config.redirectUri}\n`);
+  const tokens = await client.exchangeCodeForTokens(code);
 				db.saveTokens(tokens);
 				sync.syncDays(90).catch(() => {});
 				res.send('Authorization successful! You can close this window.');
