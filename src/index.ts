@@ -35,7 +35,6 @@ if (existingTokens) {
 }
 
 const sync = new WhoopSync(client, db);
-
 const sseTransports = new Map<string, SSEServerTransport>();
 
 function formatDuration(millis: number | null): string {
@@ -328,10 +327,6 @@ async function main(): Promise<void> {
 		process.stderr.write('Whoop MCP server running on stdio\n');
 	} else {
 		const app = express();
-		app.use((req, res, next) => {
-  if (req.path === '/messages') return next();
-  express.json()(req, res, next);
-});
 
 		app.get('/callback', async (req: Request, res: Response) => {
 			const code = req.query.code as string | undefined;
@@ -365,7 +360,7 @@ async function main(): Promise<void> {
 			await server.connect(transport);
 		});
 
-		app.post('/messages', async (req: Request, res: Response) => {
+		app.post('/messages', express.raw({ type: '*/*' }), async (req: Request, res: Response) => {
 			const sessionId = req.query.sessionId as string;
 			const transport = sseTransports.get(sessionId);
 			if (!transport) {
