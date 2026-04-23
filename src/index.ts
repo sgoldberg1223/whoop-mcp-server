@@ -367,7 +367,9 @@ async function main(): Promise<void> {
 				res.status(404).send('Session not found');
 				return;
 			}
-			await transport.handlePostMessage(req, res);
+			const bodyText = req.body instanceof Buffer ? req.body.toString('utf8') : JSON.stringify(req.body);
+			const parsedBody = JSON.parse(bodyText);
+			await transport.handlePostMessage(req, res, parsedBody);
 		});
 
 		const server = app.listen(config.port, '0.0.0.0', () => {
