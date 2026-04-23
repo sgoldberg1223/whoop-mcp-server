@@ -21,10 +21,6 @@ RUN npm run build
 # Create data directory for SQLite
 RUN mkdir -p /data
 
-ENV DB_PATH=/data/whoop.db
-ENV MCP_MODE=http
-ENV PORT=3000
-
 EXPOSE 3000
 
 CMD ["node", "dist/index.js"]
