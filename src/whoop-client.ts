@@ -56,33 +56,37 @@ export class WhoopClient {
 	}
 
 	async exchangeCodeForTokens(code: string): Promise<WhoopTokens> {
-		const response = await fetch(`${WHOOP_AUTH_BASE}/token`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-  body: new URLSearchParams({
-    grant_type: 'authorization_code',
-    code,
-    client_id: this.clientId,
-    client_secret: this.clientSecret,
-    redirect_uri: this.redirectUri,
-  }),
-});
+  const credentials = Buffer.from(`${this.clientId}:${this.clientSecret}`).toString('base64');
+  const response = await fetch(`${WHOOP_AUTH_BASE}/token`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Authorization': `Basic ${credentials}`,
+    },
+    body: new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      client_id: this.clientId,
+      client_secret: this.clientSecret,
+      redirect_uri: this.redirectUri,
+    }),
+  });
 
-		if (!response.ok) {
-			throw new Error(`Token exchange failed: ${await response.text()}`);
-		}
+  if (!response.ok) {
+    throw new Error(`Token exchange failed: ${await response.text()}`);
+  }
 
-		const data = await response.json() as { access_token: string; refresh_token: string; expires_in: number };
-		const tokens: WhoopTokens = {
-			access_token: data.access_token,
-			refresh_token: data.refresh_token,
-			expires_at: Date.now() + data.expires_in * 1000,
-		};
+  const data = await response.json() as { access_token: string; refresh_token: string; expires_in: number };
 
-		this.tokens = tokens;
-		return tokens;
-	}
+  const tokens: WhoopTokens = {
+    access_token: data.access_token,
+    refresh_token: data.refresh_token,
+    expires_at: Date.now() + data.expires_in * 1000,
+  };
 
+  this.tokens = tokens;
+  return tokens;
+}
 	private async refreshTokens(): Promise<void> {
 		if (!this.tokens?.refresh_token) {
 			throw new Error('No refresh token available');
